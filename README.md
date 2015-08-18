@@ -1,7 +1,8 @@
 Brainfuck-JIT
 =============
 
-Contains code from the presentation "How to make a simple virtual machine". The
+Contains code from the presentation "How to make a simple virtual machine".
+
 The accompanying slides are available at
 https://speakerdeck.com/csl/how-to-make-a-simple-virtual-machine
 
@@ -29,7 +30,7 @@ trouble compiling this on Linux, and I had to disable shared libraries:
     $ make check
     $ make install
 
-To buil the C++ Brainfuck VM, you should now simply do
+To build the C++ Brainfuck VM, you should now simply do
 
     $ g++ -W -Wall -g bfloo.cpp -obfloo.cpp -llightning
 
