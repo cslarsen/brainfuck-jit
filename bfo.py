@@ -21,13 +21,24 @@ import sys
 
 def optimize_source(source, verbose=False):
     if verbose:
-        sys.stderr.write("optimizing ...")
+        sys.stderr.write("optimizing ... ")
         sys.stderr.flush()
+
+    # Remove header comments
+    while source[0] == "[":
+        n, count = 1, 1
+        while count > 0:
+            if source[n] == "[":
+                count += 1
+            elif source[n] == "]":
+                count -= 1
+            n += 1
+        source = source[n:]
 
     # Remove unknown operations
     source = filter(lambda x: x in "+-<>.,[]", source)
 
-    # Contract sequences of same operators
+    # Contract same-operator sequences (e.g. ++++ => op=+ count=4)
     out, prev, count = [], None, 0
     for op in source:
         if (op in "[]") or (op != prev):
@@ -38,10 +49,18 @@ def optimize_source(source, verbose=False):
             count += 1
     out.append((prev, count))
 
-    if verbose:
-        sys.stderr.write("\n")
-        sys.stderr.write("optimized from %d to %d instructions\n" % (len(source), len(out)))
+    # Optimize [-] to "zero current memory cell"
+    for n in xrange(len(out)-2):
+        a, ac = out[n]
+        b, bc = out[n+1]
+        c, cc = out[n+2]
+        if a=="[" and b=="-" and bc==1 and c=="]":
+            out[n] = ("zero", 0)
+            out[n+1] = (None, 0)
+            out[n+2] = (None, 0)
 
+    # Byteplay doesn't support single jumps spanning more than 4096
+    # instructions. A possible workaround is to jump in many stages.
     if len(out) > 4096:
         # Find largest jump length
         maxlen = 0
@@ -56,6 +75,10 @@ def optimize_source(source, verbose=False):
             sys.stderr.write(("warning: found jump larger than %d positions\n" %
                 maxlen))
             sys.stderr.write("          (that will probably not work with byteplay)\n")
+
+    if verbose:
+        sys.stderr.write("\n")
+        sys.stderr.write("optimized from %d to %d instructions\n" % (len(source), len(out)))
 
     return out
 
@@ -106,6 +129,12 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
             c.append((bp.LOAD_FAST, "memory"))
             c.append((bp.LOAD_FAST, "ptr"))
             c.append((bp.STORE_SUBSCR, None))
+
+    def zero():
+        c.append((bp.LOAD_CONST, 0))
+        c.append((bp.LOAD_FAST, "memory"))
+        c.append((bp.LOAD_FAST, "ptr"))
+        c.append((bp.STORE_SUBSCR, None))
 
     def dot(count):
         # Prepare call to sys.stdout.write(chr(...))
@@ -202,10 +231,13 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
             start_loop(labels[-1])
         elif op == "]":
             end_loop(labels.pop())
+        elif op == "zero":
+            zero()
+        elif op is None:
+            pass
         else:
             print("Unknown operator: %s" % op)
             sys.exit(1)
-            continue
 
     # return None
     c.append((bp.LOAD_CONST, None))
