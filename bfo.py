@@ -14,59 +14,59 @@ Distributed under the LGPL v2.1 or later. You are allowed to change the license
 on a particular copy to the LGPL 3.0, the GPL 2.0 or GPL 3.0.
 """
 
+from collections import deque
 import byteplay as bp
-import sys
 import os
+import sys
 
 def optimize_source(source, verbose=False):
-    # First pass: Remove any unknown operators
     if verbose:
-        sys.stderr.write("original source size: %d bytes\n" % len(source))
-
-    source = filter(lambda x: x in ["+", "-", ">", "<", ".", ",", "[", "]"],
-            source)
-
-    if verbose:
-        sys.stderr.write("filtered source size: %d bytes\n" % len(source))
-        sys.stderr.write("optimizing ...\n")
+        sys.stderr.write("optimizing ...")
         sys.stderr.flush()
 
-    # Truncate long sequences of the same operation
-    keep_running = True
-    while keep_running:
-        keep_running = False
+    # Remove unknown operations
+    source = filter(lambda x: x in "+-<>.,[]", source)
 
-        for pos, op in enumerate(source):
-            if op not in ["+", "-", ">", "<", ".", ","]:
-                continue
-
-            length = 1
-            try:
-                while source[pos+length] == op:
-                    length += 1
-            except IndexError:
-                length -= 1
-
-            if length > 1:
-                source[pos:pos+length] = [(op, length)]
-                # Start over again
-                keep_running = True
-                break
+    # Contract sequences of same operators
+    out, prev, count = [], None, 0
+    for op in source:
+        if (op in "[]") or (op != prev):
+            if count > 0:
+                out.append((prev, count))
+            prev, count = op, 1
+        else:
+            count += 1
+    out.append((prev, count))
 
     if verbose:
-        sys.stderr.write("optimized source size: %d instructions\n" % len(source))
-        if len(source) > 2**12:
-            sys.stderr.write("warning: >4096 instructions may trigger extended jumps\n")
+        sys.stderr.write("\n")
+        sys.stderr.write("optimized from %d to %d instructions\n" % (len(source), len(out)))
 
-    return source
+    if len(out) > 4096:
+        # Find largest jump length
+        maxlen = 0
+        s = deque()
+        for pos, (op, _) in enumerate(out):
+            if op == "[":
+                s.append(pos)
+            elif op == "]":
+                maxlen = max(maxlen, pos-s.pop())
+
+        if maxlen > 4096:
+            sys.stderr.write(("warning: found jump larger than %d positions\n" %
+                maxlen))
+            sys.stderr.write("          (that will probably not work with byteplay)\n")
+
+    return out
 
 def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
+    # Bytecode
     c = []
 
-    # TODO:
-    # Labels: Each [ and ] need an associated label,
-    #         so at "[" we can JZ while_end and at
-    #         "]" we can JNZ while_begin
+    # Keep track of jump labels
+    labels = []
+    labelpos = {}
+
 
     # import sys
     c.append((bp.LOAD_CONST, -1))
@@ -107,9 +107,6 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
             c.append((bp.LOAD_FAST, "ptr"))
             c.append((bp.STORE_SUBSCR, None))
 
-    plus = lambda: add(1)
-    minus = lambda: add(-1)
-
     def dot(count):
         # Prepare call to sys.stdout.write(chr(...))
         c.append((bp.LOAD_GLOBAL, "sys"))
@@ -129,12 +126,10 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
             c.append((bp.LOAD_CONST, count))
             c.append((bp.BINARY_MULTIPLY, None))
 
-        # Call sys.stdout.write
+        # Call sys.stdout.write and drop its return value
         c.append((bp.CALL_FUNCTION, 1))
-        # Drop return-value
         c.append((bp.POP_TOP, None))
 
-        # Flush
         if flush:
             c.append((bp.LOAD_GLOBAL, "sys"))
             c.append((bp.LOAD_ATTR, "stdout"))
@@ -159,12 +154,6 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
         c.append((bp.LOAD_CONST, amount))
         c.append((bp.INPLACE_ADD, None))
         c.append((bp.STORE_FAST, "ptr"))
-
-    right = lambda: move(1)
-    left = lambda: move(-1)
-
-    labels = []
-    labelpos = {}
 
     def start_loop(label):
         c.append((label, None))
@@ -195,13 +184,7 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
         c.append((bp.POP_JUMP_IF_FALSE, startlabel))
 
     # Translate Brainfuck to Python bytecode
-    for pos, op in enumerate(optimize_source(source, verbose=verbose)):
-        start = len(c)-1
-
-        count = 1
-        if isinstance(op, tuple):
-            op, count = op
-
+    for (op, count) in optimize_source(source, verbose=verbose):
         if op == ">":
             move(count)
         elif op == "<":
@@ -223,7 +206,6 @@ def compile(source, memsize=300000, flush=True, modulus=None, verbose=False):
             print("Unknown operator: %s" % op)
             sys.exit(1)
             continue
-        end = len(c)-1
 
     # return None
     c.append((bp.LOAD_CONST, None))
@@ -257,6 +239,7 @@ if __name__ == "__main__":
     flush = True
     modulus = None
     verbose = False
+
     for arg in sys.argv[1:]:
         if arg == "-e":
             export = True
