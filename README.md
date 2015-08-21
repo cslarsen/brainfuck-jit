@@ -17,9 +17,11 @@ Requirements and build instructions
 
 The pure Python interpreter should work on both Python 2 and 3. The
 JIT-to-CPython bytecode version requires the `byteplay` module, available
-through pip (but only for Python 2.x):
+through pip (but only for Python 2.7):
 
     $ pip install byteplay
+
+Note that we use some bytecode instructions only available to Python 2.7.
 
 Finally, the C++ JIT-compiler to machine code requires GNU Lightning. I had
 trouble compiling this on Linux, and I had to disable shared libraries:
@@ -56,7 +58,11 @@ If you don't like AT&T assembly syntax, do
 Checking the VMs
 ----------------
 
-Type `make check` to quickly see if the VMs work.
+Type `make check` to quickly see if the VMs work. Note that the `byteplay`
+module uses some Python instructions only available on the Python 2.7 branch.
+So to run with python2.7, do
+
+    $ PYTHON=python2.7 make -e check
 
 Running examples
 ----------------
@@ -113,7 +119,10 @@ Comparing the various VMs
 -------------------------
 
 Type `make profile` to time the running time of the different VMs on some
-particular Brainfuck programs.
+particular Brainfuck programs. If your default python version is 2.6 or lower,
+this won't work; you need 2.7. You can choose another version like so:
+
+    $ PYTHON=python2.7 make -e check
 
 Author and license
 ------------------
